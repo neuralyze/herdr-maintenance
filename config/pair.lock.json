@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "platform": "linux-x86_64",
+  "products": {
+    "herdr": {
+      "repository": "neuralyze/herdr",
+      "commit": "0f14769c09be18a1765745a5034da2722e6721bd",
+      "upstream_repository": "herdrdev/herdr",
+      "upstream_commit": "143bf5fd4781d164260c63fe28e7dc08054ad32f",
+      "upstream_tag": null
+    },
+    "herdr-mirror": {
+      "repository": "neuralyze/herdr-mirror",
+      "commit": "3b3fe89acbaf6f254a5bb36e759f9155b31e0b7f",
+      "upstream_repository": "nikok6/herdr-mirror",
+      "upstream_commit": "195398c1275f9f3d18ddff70282149005a2bec01",
+      "upstream_tag": "v0.4.3"
+    }
+  }
+}
