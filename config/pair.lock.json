@@ -4,7 +4,7 @@
   "products": {
     "herdr": {
       "repository": "neuralyze/herdr",
-      "commit": "8bc660289aa7c11b9e91dc417f8b0eccef24b350",
+      "commit": "d5626e07b4c28cb48d45e23f5a0b59915aaaa5bf",
       "upstream_repository": "herdrdev/herdr",
       "upstream_commit": "143bf5fd4781d164260c63fe28e7dc08054ad32f",
       "upstream_tag": null
