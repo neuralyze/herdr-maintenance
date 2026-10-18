@@ -19,7 +19,7 @@ from .github import GitHub, GitHubError
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 REPO = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
-SECURITY = re.compile(r"\b(security|vulnerability|CVE-\d|remote code execution|privilege escalation)\b", re.I)
+SECURITY = re.compile(r"\b(security|vulnerabilit(?:y|ies)|CVE-\d{4}-\d{4,}|remote code execution|privilege escalation)\b", re.I)
 
 
 def clean_env():
@@ -184,7 +184,7 @@ def component(config, product_name, workspace, apply=False, gh=None, source_urls
     if not isinstance(tag, str) or not tag or tag.startswith("-") or any(c in tag for c in "\n\r\0"):
         raise ValueError("Invalid release tag")
     notes = release.get("body") or ""
-    security = bool(SECURITY.search(notes + " " + release.get("name", "")))
+    security = bool(SECURITY.search(notes + " " + (release.get("name") or "")))
     Path(workspace).mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="component-", dir=workspace) as temporary:
         directory = Path(temporary)
@@ -208,7 +208,8 @@ def component(config, product_name, workspace, apply=False, gh=None, source_urls
             reason = None
         if reason:
             if apply:
-                issue(gh, repo, config["owner"], "<!-- maintenance:upstream-review -->", "Review upstream release provenance", reason + f"\nRecorded: {recorded}\nTarget: {target} ({tag})")
+                priority = "[security] " if security else ""
+                issue(gh, repo, config["owner"], "<!-- maintenance:upstream-review -->", priority + "Review upstream release provenance", reason + f"\nRecorded: {recorded}\nTarget: {target} ({tag})\n\nRelease notes:\n{notes}")
             return outcome("review", reason=reason, security_update=security)
         # Detect historical tag retargeting even when latest now points at a newer tag.
         if baseline.get("upstream_tag"):
@@ -216,13 +217,15 @@ def component(config, product_name, workspace, apply=False, gh=None, source_urls
             if git(directory, "rev-parse", "FETCH_HEAD^{commit}") != recorded:
                 reason = "Previously recorded upstream tag was retargeted; human review required"
                 if apply:
-                    issue(gh, repo, config["owner"], "<!-- maintenance:upstream-review -->", "Review retargeted upstream tag", reason)
-                return outcome("review", reason=reason)
+                    priority = "[security] " if security else ""
+                    issue(gh, repo, config["owner"], "<!-- maintenance:upstream-review -->", priority + "Review retargeted upstream tag", reason + f"\n\nRelease notes:\n{notes}")
+                return outcome("review", reason=reason, security_update=security)
         candidates = adoption(directory, baseline["patches"], recorded, target, notes)
         tree, conflicts = prepare_import(directory, maintained, recorded, target)
         if conflicts:
             if apply:
-                issue(gh, repo, config["owner"], "<!-- maintenance:upstream-conflict -->", f"Resolve {product_name} upstream import conflicts", f"Import {tag} ({target}) onto {maintained}. Resolve manually; maintained was untouched.\n\n" + "\n".join(f"- `{p}`" for p in conflicts))
+                priority = "[security] " if security else ""
+                issue(gh, repo, config["owner"], "<!-- maintenance:upstream-conflict -->", f"{priority}Resolve {product_name} upstream import conflicts", f"Import {tag} ({target}) onto {maintained}. Resolve manually; maintained was untouched.\n\nRelease notes:\n{notes}\n\n" + "\n".join(f"- `{p}`" for p in conflicts))
             return outcome("conflict", conflicts=conflicts, security_update=security, adoption_candidates=candidates)
         baseline.update(upstream_commit=target, upstream_tag=tag)
         path = directory / ".maintenance/upstream.json"

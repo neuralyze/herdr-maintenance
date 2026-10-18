@@ -19,13 +19,13 @@ class FakeGitHub:
     def api(self, method, endpoint, payload=None):
         self.calls.append((method, endpoint, payload))
         if endpoint.endswith("/releases/latest"):
-            return {"tag_name": self.tag, "body": self.notes, "name": self.tag, "draft": False, "prerelease": False}
+            return {"tag_name": self.tag, "body": self.notes, "name": None, "draft": False, "prerelease": False}
         if "/pulls?" in endpoint:
             return self.prs
         if "/issues?" in endpoint:
             return self.issues
         if method == "POST" and endpoint.endswith("/pulls"):
-            pr = {"number": 1, "html_url": "https://github.com/neuralyze/herdr/pull/1",
+            pr = {**payload, "number": 1, "html_url": "https://github.com/neuralyze/herdr/pull/1",
                   "head": {"sha": self.next_head}, "requested_reviewers": []}
             self.prs.append(pr)
             return pr
@@ -126,12 +126,23 @@ class UpdaterFixtures(unittest.TestCase):
         self.assertEqual(self.gh.prs[0]["requested_reviewers"], [{"login": "neuralyze"}])
         self.assertEqual(self.gh.runs, [{"head_sha": self.published[0][1]}])
 
+    def test_cve_only_release_prioritizes_review_without_dropping_fixes(self):
+        self.gh.notes = "Fix CVE-2026-12345."
+        result = self.run_update()
+        self.assertTrue(result["security_update"])
+        self.assertTrue(self.gh.prs[0]["title"].startswith("[security]"))
+        self.assertEqual(self.gh.issues[0]["assignees"], ["neuralyze"])
+        self.assertIn("CVE-2026-12345", self.gh.issues[0]["body"])
+        self.assertEqual(git(self.fork, "show", self.published[0][1] + ":local.txt"), "managed fix")
+
+
     def test_conflict_aborts_and_names_files(self):
         self.write(self.fork, "code.txt", "local edit\n")
         self.maintained = self.commit(self.fork, "local code")
         self.write(self.upstream, "code.txt", "upstream edit\n")
         self.target = self.commit(self.upstream, "upstream code")
         git(self.upstream, "tag", "v3")
+        self.gh.notes = "Fix CVE-2026-9876."
         self.gh.tag = "v3"
         result = self.run_update()
         self.assertEqual(result["status"], "conflict")
@@ -139,6 +150,9 @@ class UpdaterFixtures(unittest.TestCase):
         self.assertIn("code.txt", self.gh.issues[0]["body"])
         self.assertEqual(self.gh.issues[0]["assignees"], ["neuralyze"])
         self.assertEqual(git(self.fork, "rev-parse", "maintained"), self.maintained)
+        self.assertTrue(result["security_update"])
+        self.assertTrue(self.gh.issues[0]["title"].startswith("[security]"))
+        self.assertIn("CVE-2026-9876", self.gh.issues[0]["body"])
         self.assertFalse(self.published)
         self.run_update()
         self.assertEqual(len(self.gh.issues), 1)

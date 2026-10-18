@@ -21,7 +21,7 @@ Maintain the tested Herdr and herdr-mirror patches through upstream releases, wi
 ## Status
 - Scope/design: complete.
 - Implementation: complete; reviewer findings on publisher source binding, interrupted promotion, approval-order rollback and missing PR validation recovery corrected.
-- Local verification: 52 tests passed, one optional binary test skipped; the separate actual-binary localhost fixture passed in a credential-free, network-isolated container with same-stream control/release, source receipts, sibling continuity and complete cleanup.
+- Local verification: 53 tests passed, one optional binary test skipped; the separate actual-binary localhost fixture passed in a credential-free, network-isolated container with same-stream control/release, source receipts, sibling continuity and complete cleanup. The live read-only paired watcher also returned up_to_date against both published maintained heads.
 - Hosted activation: pending immutable caller-pin bootstrap and first hosted validation.
 
 ## Risks
