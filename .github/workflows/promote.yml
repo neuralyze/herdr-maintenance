@@ -1,0 +1,41 @@
+name: Approve paired release promotion
+
+# Operations: manually select an existing candidate tag from main. The required
+# reviewers and main-only deployment policy on release-approval are provisioned
+# out of band. The CLI verifies candidate identities/assets and retains the
+# preceding approved manifest for rollback; no binary is executed or installed.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing paired candidate prerelease tag to approve
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: paired-release-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.repository == 'neuralyze/herdr-maintenance' && github.ref == 'refs/heads/main'
+    environment: release-approval
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact trusted promotion tools
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # upstream Herdr: checkout v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify and promote the approved candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_TAG: ${{ inputs.tag }}
+        run: >-
+          python -m maintenance.release promote --tag "$CANDIDATE_TAG"
+          --repository neuralyze/herdr-maintenance --output out/promotion.json

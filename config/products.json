@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "owner": "neuralyze",
+  "maintenance_repository": "neuralyze/herdr-maintenance",
+  "products": {
+    "herdr": {
+      "upstream": "herdrdev/herdr",
+      "fork": "neuralyze/herdr",
+      "branch": "maintained",
+      "binary": "herdr",
+      "platform": "linux-x86_64"
+    },
+    "herdr-mirror": {
+      "upstream": "nikok6/herdr-mirror",
+      "fork": "neuralyze/herdr-mirror",
+      "branch": "maintained",
+      "binary": "herdr-mirror",
+      "platform": "linux-x86_64"
+    }
+  }
+}

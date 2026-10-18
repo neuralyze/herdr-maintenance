@@ -1,0 +1,77 @@
+name: Reusable maintained component update
+
+# Operations: called only by the product's maintained-branch scheduler/manual
+# workflow. The CLI owns PRs, conflict issues, review requests and check dispatch.
+on:
+  workflow_call:
+    inputs:
+      product:
+        description: Configured product (herdr or herdr-mirror)
+        required: true
+        type: string
+      tool_ref:
+        description: Exact 40-hex herdr-maintenance commit matching the reusable workflow pin
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: component-update-${{ github.repository }}-${{ inputs.product }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.ref == 'refs/heads/maintained'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    steps:
+      - name: Validate caller identity and immutable tool pin
+        env:
+          PRODUCT: ${{ inputs.product }}
+          CALLER: ${{ github.repository }}
+          TOOL_REF: ${{ inputs.tool_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$TOOL_REF" =~ ^[0-9a-f]{40}$ ]]
+          case "$PRODUCT:$CALLER" in
+            herdr:neuralyze/herdr|herdr-mirror:neuralyze/herdr-mirror) ;;
+            *) echo 'Unexpected component caller' >&2; exit 1 ;;
+          esac
+      - name: Check out trusted maintenance tools
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # upstream Herdr: checkout v6
+        with:
+          repository: neuralyze/herdr-maintenance
+          ref: ${{ inputs.tool_ref }}
+          persist-credentials: false
+      - name: Import upstream into a reviewed fork candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT: ${{ inputs.product }}
+        run: >-
+          python -m maintenance.updater --config config/products.json
+          component --product "$PRODUCT" --workspace "$RUNNER_TEMP/update"
+          --output out/update.json --apply
+      - name: Report update outcome and flag conflicts
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path('out/update.json')
+          if not path.is_file():
+              raise SystemExit('Updater did not produce its outcome; see the previous step')
+          result = json.loads(path.read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('## Component update outcome\n\n```json\n')
+              summary.write(json.dumps(result, indent=2))
+              summary.write('\n```\n')
+          if result['status'] == 'conflict':
+              raise SystemExit('Action required: resolve the assigned upstream-conflict issue')
+          PY

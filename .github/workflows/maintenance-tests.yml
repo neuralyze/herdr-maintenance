@@ -1,0 +1,37 @@
+name: Maintenance automation selftests
+
+# Operations: exercise real temporary Git repositories, package integrity and
+# fixture/unit behavior. This workflow has no update/publish permissions and
+# does not stand in for the actual binary pair fixture in pair-check.yml.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '11 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintenance-selftests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftests:
+    if: github.repository == 'neuralyze/herdr-maintenance'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact maintenance candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # upstream Herdr: checkout v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Run standard-library tests without Actions credentials
+        run: |
+          env -i HOME="$HOME" PATH="$PATH" RUNNER_TEMP="$RUNNER_TEMP" \
+            TMPDIR="$RUNNER_TEMP" LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            python -m unittest discover -s tests -v

@@ -1,0 +1,100 @@
+name: Reusable maintained component check
+
+# Operations: the fork caller supplies the exact PR head/push/dispatch SHA.
+# This job has no write token or inherited secrets. Upstream commands and the
+# private fixture receive an allowlisted environment, not Actions credentials.
+on:
+  workflow_call:
+    inputs:
+      product:
+        description: Configured product (herdr or herdr-mirror)
+        required: true
+        type: string
+      source_ref:
+        description: Exact 40-hex source commit in the configured product fork
+        required: true
+        type: string
+      tool_ref:
+        description: Exact 40-hex herdr-maintenance commit matching the reusable workflow pin
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: component-check-${{ github.repository }}-${{ inputs.product }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Validate caller and immutable commits
+        env:
+          PRODUCT: ${{ inputs.product }}
+          CALLER: ${{ github.repository }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          TOOL_REF: ${{ inputs.tool_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$TOOL_REF" =~ ^[0-9a-f]{40}$ ]]
+          case "$PRODUCT:$CALLER" in
+            herdr:neuralyze/herdr|herdr-mirror:neuralyze/herdr-mirror) ;;
+            *) echo 'Unexpected component caller' >&2; exit 1 ;;
+          esac
+      - name: Check out trusted maintenance tools
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # upstream Herdr: checkout v6
+        with:
+          repository: neuralyze/herdr-maintenance
+          ref: ${{ inputs.tool_ref }}
+          persist-credentials: false
+      - name: Check out exact fork candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # upstream Herdr: checkout v6
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.source_ref }}
+          path: source
+          persist-credentials: false
+      - name: Install Rust baseline and lint components
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # upstream Herdr: v1
+        with:
+          toolchain: stable
+          components: rustfmt,clippy
+      - name: Install upstream Rust task runners
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # upstream Herdr: v2.87.22
+        with:
+          tool: just,cargo-nextest
+      - name: Install upstream Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # upstream Herdr: v2
+        with:
+          bun-version: 1.3.14
+      - name: Install upstream Zig
+        uses: vercel-labs/setup-zig@83c1594f26b86da8a9a8ddd9b5ee5f3af0f96943 # upstream Herdr: v1.0.2
+        with:
+          version: 0.16.0
+      - name: Install Linux build and private SSH fixture dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build musl-tools clang libclang-dev pkg-config openssh-server
+          sudo install -d -m 0755 /run/sshd
+      - name: Run upstream Linux x64 suite and focused regressions without credentials
+        env:
+          PRODUCT: ${{ inputs.product }}
+        run: |
+          env -i HOME="$HOME" PATH="$PATH" RUNNER_TEMP="$RUNNER_TEMP" \
+            TMPDIR="$RUNNER_TEMP" LANG=C.UTF-8 LC_ALL=C.UTF-8 TERM=xterm-256color \
+            COLUMNS=120 LINES=40 CARGO_BUILD_JOBS=2 \
+            CARGO_PROFILE_DEV_DEBUG=1 CARGO_PROFILE_TEST_DEBUG=1 \
+            python -m maintenance.ci component --product "$PRODUCT" \
+            --source source --output out/component --jobs 2
+      - name: Retain component evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # upstream Herdr: upload-artifact v7
+        with:
+          name: component-${{ inputs.product }}-${{ inputs.source_ref }}
+          path: out/component/
+          if-no-files-found: warn
+          retention-days: 14

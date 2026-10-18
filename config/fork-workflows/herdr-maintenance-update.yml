@@ -1,0 +1,25 @@
+name: Update maintained Herdr
+
+# Install as .github/workflows/maintenance-update.yml in neuralyze/herdr after
+# rendering both __TOOL_COMMIT__ values to the same trusted 40-hex tool commit.
+# Daily UTC/manual runs propose a reviewed update; they never merge or deploy.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  update:
+    if: github.repository == 'neuralyze/herdr' && github.ref == 'refs/heads/maintained'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    uses: neuralyze/herdr-maintenance/.github/workflows/component-update.yml@__TOOL_COMMIT__
+    with:
+      product: herdr
+      # github.workflow_sha would check out the fork, not the central tools.
+      tool_ref: '__TOOL_COMMIT__'

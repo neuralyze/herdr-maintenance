@@ -1,0 +1,114 @@
+name: Validate and publish paired candidate
+
+# Operations: PRs and dispatched updater branches validate only. A successful
+# main push/manual main dispatch may publish a candidate prerelease. Packaging
+# runs in the read-only build job; the isolated writer downloads only dist and
+# never runs upstream binaries or scripts. No fleet installation/restart occurs.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paired-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    if: github.repository == 'neuralyze/herdr-maintenance'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact validator and pair lock
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # upstream Herdr: checkout v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install Rust baseline and lint components
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # upstream Herdr: v1
+        with:
+          toolchain: stable
+          components: rustfmt,clippy
+      - name: Install upstream Rust task runners
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # upstream Herdr: v2.87.22
+        with:
+          tool: just,cargo-nextest
+      - name: Install upstream Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # upstream Herdr: v2
+        with:
+          bun-version: 1.3.14
+      - name: Install upstream Zig
+        uses: vercel-labs/setup-zig@83c1594f26b86da8a9a8ddd9b5ee5f3af0f96943 # upstream Herdr: v1.0.2
+        with:
+          version: 0.16.0
+      - name: Install Linux build and private SSH fixture dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build musl-tools clang libclang-dev pkg-config openssh-server
+          sudo install -d -m 0755 /run/sshd
+      - name: Run both upstream suites, regressions and actual localhost pair fixture
+        run: |
+          env -i HOME="$HOME" PATH="$PATH" RUNNER_TEMP="$RUNNER_TEMP" \
+            TMPDIR="$RUNNER_TEMP" LANG=C.UTF-8 LC_ALL=C.UTF-8 TERM=xterm-256color \
+            COLUMNS=120 LINES=40 CARGO_BUILD_JOBS=2 \
+            CARGO_PROFILE_DEV_DEBUG=1 CARGO_PROFILE_TEST_DEBUG=1 \
+            python -m maintenance.ci pair --lock config/pair.lock.json \
+            --workspace sources --output out/pair --jobs 2
+      - name: Package verified binaries before crossing the publication boundary
+        run: |
+          env -i HOME="$HOME" PATH="$PATH" TMPDIR="$RUNNER_TEMP" \
+            LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+            python -m maintenance.package build --lock config/pair.lock.json \
+            --evidence out/pair/ci-evidence.json --output dist
+      - name: Upload only the four release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # upstream Herdr: upload-artifact v7
+        with:
+          name: paired-dist-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/herdr-linux-x86_64.tar.gz
+            dist/herdr-mirror-linux-x86_64.tar.gz
+            dist/pair-manifest.json
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain validation evidence separately from release assets
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # upstream Herdr: upload-artifact v7
+        with:
+          name: paired-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: out/pair/
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    needs: build
+    if: >-
+      github.repository == 'neuralyze/herdr-maintenance' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact trusted publisher, never upstream code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # upstream Herdr: checkout v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download only this successful run's packaged distribution
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # upstream Herdr release: v8
+        with:
+          name: paired-dist-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist
+      - name: Verify identities and checksums, then publish candidate metadata and bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python -m maintenance.release candidate --dist dist
+          --repository neuralyze/herdr-maintenance --output out/release.json

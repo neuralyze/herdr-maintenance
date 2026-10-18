@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.cache/
+.bootstrap/
+.smoke/
+sources/
+out/
+dist/
+.env
+.env.*
